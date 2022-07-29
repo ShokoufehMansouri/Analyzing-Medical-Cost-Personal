@@ -1,0 +1,391 @@
+---
+title: "SDS II_Project: Analyzing Medical Cost Personal "
+author: "Shokoufeh Mansourihafshejani"
+date: "2022-07-28"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Data set: Medical Cost Personal Dataset
+
+This dataset explains the cost of a small sample of USA population Medical Insurance Cost based on some attributes such as age, sex, bmi, etc.\
+This dataset corresponds to a practical used in the book Machine Learning with R by Brett Lantz; which is a book that provides an introduction to machine learning using R. All of these datasets are in the public domain but simply needed some cleaning up and recording to match the format in the book.
+
+Dataset reference link could be found [here](https://www.kaggle.com/mirichoi0218/insurance).
+
+### Dataset Overview:
+
+The dataset consists of 1338 rows and 7 columns. The summary of each column could be found below.
+
+-   age: age of primary beneficiary.
+
+-   sex: insurance contractor gender, female, male.
+
+-   bmi: Body mass index, providing an understanding of body, weights that are relatively high or low relative to height, objective index of body weight ($kg/ m ^ 2$) using the ratio of height to weight, ideally 18.5 to 24.9.
+
+-   children: Number of children covered by health insurance / Number of dependents.
+
+-   smoker: Smoking.
+
+-   region: the beneficiary's residential area in the US, northeast, southeast, southwest, northwest.
+
+-   charges: Individual medical costs billed by health insurance.
+
+```{r include = FALSE, message= FALSE , warning= FALSE}
+library(ggplot2)
+library(dplyr)
+library(reshape2)
+library(runjags)
+library(dclone)
+library(R2jags)
+library(ggmcmc)
+library(MCMCvis)
+
+```
+
+### Reading the dataset:
+
+A csv file containing the dataset will be imported. Then, The dataset will be converted to a dataframe object.
+
+By looking at only 5 rows of the dataset, it could be confirmed that the columns (features) are representing the above mentioned summary. For example, by looking at the sex column data, it could be verified that it represnts the sex information.
+
+Moreover, by extracting the summary of the dataset and printing it, an overall overview of each column in the dataset could be observed.
+
+```{r message= FALSE , warning= FALSE}
+
+data = read.csv("C:/Users/Public/data science/SDS II/Project/insurance.csv")
+df = data.frame(data)
+print(head(df,5))
+summary(df)
+
+```
+
+## Data Exploration and Visualization:
+
+At the first step, the values frequency at each column was plotted.
+
+### Age
+
+```{r message= FALSE , warning= FALSE, echo = FALSE,fig.width = 6}
+
+age = unique(df$age)
+x = data.frame(table(df$age))
+x <- setNames(x, c("age","count"))
+p<-ggplot(x , aes(x = age, y= count, color = age))+
+  geom_bar(stat="identity", fill=age) +   theme(legend.position="none")
+p
+
+```
+
+For the 'age' column, it could be seen that the most frequent age value in the dataset is 18 or 19 years old.
+
+The oldest in our dataset has an age of 64. Hence, the range is between 18 to 64.
+
+The frequency of other ages are almost equal.
+
+### Sex
+
+```{r message= FALSE , warning= FALSE, echo = FALSE}
+
+sex = unique(df$sex)
+
+sex_count <- count(df,sex)
+
+pie<- ggplot(sex_count, aes(x = "", y = n, fill = sex)) +
+  geom_col() +
+  geom_text(aes(label = paste0(round(n / sum(n) * 100, 1), "%")),
+            position = position_stack(vjust = 0.5)) +
+  coord_polar(theta = "y") + theme_void()
+pie
+
+```
+
+By observing the pie plot of the dataset for 'sex' column, it could be concluded that there exists equal number of men and women in the dataset.
+
+The data is not biased toward a specific sex. It could be decided to be removed the 'sex' feature since it may have no effect on the MCMC model.
+
+### BMI
+
+```{r message= FALSE , warning= FALSE, echo = FALSE}
+
+p1 <- ggplot(df, aes(x=bmi)) + 
+  geom_histogram(aes(y=..density..), colour="black", fill="white")+
+  geom_density(alpha=.2, fill="#FF6666") 
+
+p1
+
+```
+
+The density plot of 'BMI' feature was ploted. The values of BMI number is close to a normal disturbution function with mean value of 30.
+
+### Children
+
+```{r message= FALSE , warning= FALSE, echo = FALSE}
+
+children = unique(df$children)
+
+children_count <- count(df,children)
+
+p2 <-ggplot(children_count , aes(x = children, y= n, color = children))+
+  geom_bar(stat="identity", fill=c(1:length(children))) +   theme(legend.position="none")+ ylab("count")
+p2
+
+```
+
+Barplot of 'children' feature is visualized above. It can be seen that most of the people have no children. The values of number of children are descending. The people represented in the data have 1 to 5 children.
+
+### Smoker
+
+```{r message= FALSE , warning= FALSE, echo = FALSE}
+
+smoker = unique(df$smoker)
+
+smoker_count <- count(df, smoker)
+
+pie1<- ggplot(smoker_count, aes(x = "", y = n, fill = smoker)) +
+  geom_col() +
+  geom_text(aes(label = paste0(round(n / sum(n) * 100, 1), "%")),
+            position = position_stack(vjust = 0.5)) +
+  scale_fill_discrete(name = "", labels = c("non-smoker","smoker"))+ 
+  coord_polar(theta = "y") + theme_void()
+pie1
+
+```
+
+In the pie plot of 'smoker' feature can be observed that only 20 perecent of people in the data are smokers.
+
+### Region
+
+```{r message= FALSE , warning= FALSE, echo = FALSE}
+
+region = unique(df$region)
+
+region_count <- count(df,region)
+
+p3 <-ggplot(region_count , aes(x = region, y= n, color = region))+
+  geom_bar(stat="identity", fill=c(1:length(region))) +   theme(legend.position="none")+ ylab("count")
+p3
+
+```
+
+The barplot of 'region' feature indicates that the people presented in the data are distrusted equally in the different regions. Hence, the feature could be be removed from the model since it may not have an effect on the value of charges.
+
+### Charges
+
+```{r message= FALSE , warning= FALSE, echo = FALSE}
+
+p4 <- ggplot(df, aes(x=charges)) + 
+  geom_histogram(aes(y=..density..), colour="black", fill="white")+
+  geom_density(alpha=.2, fill="#FF6666") 
+
+p4
+
+```
+
+The density plot for 'charges' feature is visualized above. It can be observed that the most of the people has a charge in the range of 0 to 20k\$. Moreover, the few people represented in the data has a high charge of between 20k to 60k \$.
+
+## Cheking outliers for age, children, BMI and charges
+
+```{r message= FALSE , warning= FALSE, echo = FALSE}
+
+new_df <- df[,c(1,3,4,7)]
+names <- c("age", "bmi", "children","charges")
+par(mfrow = c(1,4))
+invisible(lapply(1:ncol(new_df), function(i) boxplot(new_df[, i],xlab = names[i])))
+
+```
+
+The boxplot of 50 percent of data for the 'age', 'bmi', 'children', and 'charges' feature is visualized above. Most of the people represented in the data has range of bmi from 27 to 33 and the median value is 30. The people mostly have 0 to 2 children and the median value is 1. The age is in the range of 28 to 50 mostly and the median value is close to 40. Finally, the people in the data has mostly charges between 5k to 17k \$ with the median value of close to 10k \$.
+
+# Bivarient and Multivarient Analysis
+
+## 'BMI' vs 'charges'
+
+```{r message= FALSE , warning= FALSE, echo = FALSE}
+
+ggplot(df, aes(x=bmi, y=charges)) + 
+  geom_point(color='#8E388E')
+
+```
+
+By visualizing the scatter plot of bmi and charges features, it can be seen that mostly the data value for bmi feature is concentrated in bmi 20 to 40 which has a charge of under 20k \$. Therefore, it could be decided that the high values for the charges could be removed from the dataset.
+
+## Analyzing age and charges by sex using line plot
+
+```{r message= FALSE , warning= FALSE, echo = FALSE}
+
+ggplot(df, aes(x=age, y=charges, group=sex,color=sex)) + stat_summary(fun = sum, geom = "line")+ ggtitle("Cost for male and female")+ theme(plot.title = element_text(hjust = 0.5))
+
+```
+
+Above, the Age feature with respect to the charges was plotted for both men and women. Hence, can be seen that the sex has not a considerable effect on charges.
+
+## Analyzing children vs charges using count plot
+
+```{r message= FALSE , warning= FALSE, echo = FALSE}
+charges_children <- aggregate(df$charges, list(df$children), FUN=mean)
+df_charges <- as.data.frame(charges_children)
+colnames(df_charges) <- c("children","mean_of_charges")
+ggplot(df_charges, aes(fill= children, y= mean_of_charges, x=children)) + geom_bar(position="dodge", stat="identity")
+
+
+```
+
+To analyze effect of number of children in the medical insurance cost, above bar plot has been plotted. The plot indicates that as the number of children increases, the mean charges increase as well. However, for people with 4 or 5 children, the mean charge is lower w.r.t people with number of children less than 4. A possible explanation to this could be a discount of medical insurance cost applied for those people.
+
+## Analyzing region vs smoker using count plot
+
+```{r message= FALSE , warning= FALSE, echo = FALSE}
+
+y=count(df, region,smoker) 
+ggplot(y, aes(fill= smoker, y=n,x=region)) + geom_bar(position="dodge", stat="identity")+ scale_fill_discrete(name = "", labels = c("non-smoker","smoker"))+ ylab("count")
+
+```
+
+Another important barplot that was plotted is for number of smoker and non-smokers in each region. The above plot indicates that the number of somkers or non-smokers are equal in each region. Based on this plot and the previous plots about region feature, it could be decided to not consider region feature in the model.
+
+## Heatmap to find the correlation
+
+```{r message= FALSE , warning= FALSE, echo = FALSE}
+
+#change data type of columns to numeric
+
+df$sex[df$sex=="male"]<- 1 
+df$sex[df$sex=="female"]<- 0
+
+df$sex <- as.numeric(df$sex)
+
+df$smoker[df$smoker=="yes"] <- 1 
+df$smoker[df$smoker=="no"] <- 0
+
+df$smoker <- as.numeric(df$smoker)
+
+df$region[df$region=="southwest"] <- 0 
+df$region[df$region=="southeast"] <- 1 
+df$region[df$region=="northwest"] <- 2 
+df$region[df$region=="northeast"] <- 3
+
+df$region <- as.numeric(df$region)
+
+#plot the heatmap
+
+cormat <- round(cor(df[1:6]),2) 
+
+#head(cormat)
+
+melted_cormat <- melt(cormat) 
+
+#head(melted_cormat)
+
+ggplot(data = melted_cormat, aes(x=Var1, y=Var2, fill=value)) +geom_tile() +
+geom_text(aes(Var2, Var1, label = value),color = "black", size = 4)+scale_fill_gradient(low = "white", high = "navy", guide = "colorbar")+ ylab("")+ xlab("")
+
+```
+
+In the heatmap, the correlation between the features is shown. As can be seen from the heatmap, there is a small correlation between the features and it means there is no strong relationship between them. Moreover, as it was discussed and showed above, there is no correlation between region and smokers feature and sex and region as well.
+
+## Preprossesing
+
+In this section, the pre-processing of dataset will be done before defining the model. At first, NAN values existence will be checked. Since the data is already clean, there is no NAN values in data.
+
+As It was decided not to consider bmi, region and sex feature columns in model. Based on the charges density and box plots, the high cost charges can be considered as outliers. Moreover, in charge vs bmi scatter plot, points on top of the plot belonging to high charges are sparse. So, the last quartile of charges column will be eliminated. Finally, after the mentioned modifications, the number of rows have been reduced to 1199.
+
+```{r message= FALSE , warning= FALSE}
+
+#check for NAN values
+
+print(NROW(na.omit(df))) # there is no NAN value in the dataset
+
+#remove 4th quantile from data of charges and bmi
+
+quartiles <- quantile(df$charges, probs=c(.25, .75), na.rm = FALSE)
+IQR <- IQR(df$charges)
+ 
+Upper <- quartiles[2] + 1.5*IQR 
+ 
+df<- subset(df, df$charges < Upper)
+
+print(nrow(df)) 
+print(head(df,7))
+
+
+```
+
+## Normalizing age and charges:
+
+For the last part of pre-processing of the data, It is time to normalize the data. The selected features (age, children, smoker) and dependent variable (charges) has completely different types and ranges. Therefore, the data should be normalized to decrease the effects of ranges of variables. By this means, age variable would be normalized with the formula below, and log of values of charges was computed. $$ age_{Norm} = (age - age_{min})/(age_{max}- age_{min}) $$
+
+```{r message= FALSE , warning= FALSE, echo = FALSE}
+
+age_interval = c(min(df$age),max(df$age)) 
+df$age <- (df$age - age_interval[1])/(age_interval[2] - age_interval[1]) 
+
+
+df$charges <- log(df$charges,6) 
+
+print(head(df,5))
+
+```
+
+## Model Definition and Training Phase
+
+A list of features to train the model with all number of data was chosen to be used in the MCMC model by using 'jags'. Then, MCMC function has been defined as a likelihood and priors functions. After that, the defined model has been stored inside a 'MCMC_model.txt' file. Then, the model has been fitted to the data. Finally, the model has been converted to a MCMC model using 'as.mcmc' method and stored in a variable called 'mcmclist'.
+
+As an output of the trained model can be seen that pD of the model is 10.7 and DIC, which is an estimate of expected predictive error, is 23.4.
+
+```{r message= FALSE , warning= FALSE}
+
+
+set.seed(123)
+
+frequentist = lm(charges~ age+children+smoker,data = df)
+
+processed_train<- list('charges'= df$charges,'age'= df$age,'children'=df$children,
+                       'smoker'=df$smoker,N = length(df)) 
+
+MCMC_model = function(){
+  # likelihood function 
+  for( i in 1 : N) {
+    charges[i] ~ dnorm(mu[i],tau2)
+
+    mu[i] <- alpha + beta1*age[i]  +
+      beta4 * children[i] + beta5 * smoker[i]
+  } 
+  #priors
+  alpha ~ dunif(0,10); beta1 ~ dunif(-10,10) 
+  beta4 ~ dunif(-10,10) 
+  beta5 ~ dunif(-10,10);tau2 ~ dgamma(1,0.5)
+}
+
+saved_model <- write.jags.model(MCMC_model, filename = 'MCMC_model.txt') 
+
+params = c("alpha", "beta1","beta4","beta5","tau2")
+
+fit_model <- jags(data = processed_train, parameters.to.save = params, model.file = saved_model, n.chains = 2, n.iter = 20000,n.burnin = 5000)
+
+fit_model
+
+mcmclist = as.mcmc(fit_model) 
+
+```
+
+## Evaluation of model:
+
+To evaluate the model, an instance of 'MCMCtrace' class has been initialized. The class is trace and density plots of MCMC chains for specific parameters of interest. The first argument is an object containing MCMC output. 'params' are character string (or vector of character strings) denoting parameters of interest which was defined above. 'ISB' equal to 'FALSE' meaning that square brackets should be ignored in the params and excl arguments. Specifying value of 'exact' argument to 'TRUE' indicates that the input from 'params' and 'excl' are matched exactly. The number of iterations to plot for trace and density plots has been considered 4000 in 'iter' argument. 'ind = TRUE' considered which means separate density lines will be plotted for each chain. Finally, there will be no request to export to a pdf file by inserting 'pdf' argument to 'FALSE'.
+
+After applying above mentioned steps, an autocorrelation matrix has been plotted. The argument to to this plotting method is a 'ggplot' object. The object was obtained by using a 'ggs' funcuton which manages MCMC samples from different sources (JAGS, MCMCpack, STAN -both via rstan and via csv files-) and converts them into a data frame tibble. The resulting data frame has four columns (Iteration, Chain, Parameter, value) and six attributes (nChains, nParameters, nIterations, nBurnin, nThin and description).
+
+```{r message= FALSE , warning= FALSE}
+
+MCMCtrace(mcmclist, params=params, ISB=FALSE, exact=TRUE, iter=4000, ind=TRUE, pdf=FALSE)
+
+ggs_autocorrelation(ggs(mcmclist))
+
+summary(mcmclist)
+
+```
